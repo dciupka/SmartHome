@@ -1,0 +1,93 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sterowanie roletami</title>
+  <link rel="stylesheet" href="{% static 'shutters/style.css' %}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+
+<body>
+  <h1>Sterowanie roletami</h1>
+
+  {% for shutter in shutters %}
+    <div class="shutter">
+      <h2>{{ shutter.name }}</h2>
+      <p>Status:
+        <span id="status-{{ shutter.id }}" class="status {{ shutter.current_state }}">
+          <i class="fas fa-circle" style="color:
+            {% if shutter.current_state == 'open' %}green
+            {% elif shutter.current_state == 'closed' %}red
+            {% else %}gray{% endif %};"></i>
+          {{ shutter.current_state }}
+        </span>
+      </p>
+
+      <label>Czas otwierania (s):</label>
+      <input type="text" id="open-{{ shutter.id }}" value="{{ shutter.open_duration }}">
+      <label>Czas zamykania (s):</label>
+      <input type="text" id="close-{{ shutter.id }}" value="{{ shutter.close_duration }}">
+      <button onclick="updateTimes({{ shutter.id }})">
+        <i class="fas fa-save"></i> Zapisz czasy
+      </button>
+      <div id="saved-msg-{{ shutter.id }}" class="saved-msg" style="display:none;">Zapisano!</div>
+      <br><br>
+
+      <button onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
+        <i class="fas fa-arrow-up"></i> Otwórz
+      </button>
+      <button onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
+        <i class="fas fa-arrow-down"></i> Zamknij
+      </button>
+
+      <div class="progress-container">
+        <div class="progress-bar" id="progress-{{ shutter.id }}"></div>
+      </div>
+    </div>
+  {% endfor %}
+
+  <br><a href="/mqtt/settings/">Ustawienia MQTT</a>
+
+  <script>
+    function control(id, action, duration) {
+      fetch(`/shutter/${id}/${action}/`)
+        .then(() => {
+          // Aktualizacja statusu lokalnie
+          const status = document.getElementById(`status-${id}`);
+          status.innerHTML = `<i class="fas fa-circle" style="color: ${
+            action === 'open' ? 'green' : 'red'
+          };"></i> ${action}`;
+          status.className = `status ${action}`;
+
+          // Animacja paska postępu
+          const bar = document.getElementById(`progress-${id}`);
+          bar.style.transition = 'none';
+          bar.style.width = '0%';
+          setTimeout(() => {
+            bar.style.transition = `width ${duration}s linear`;
+            bar.style.width = '100%';
+          }, 100);
+        });
+    }
+
+    function updateTimes(id) {
+      const open = parseFloat(document.getElementById(`open-${id}`).value.replace(',', '.'));
+      const close = parseFloat(document.getElementById(`close-${id}`).value.replace(',', '.'));
+
+      fetch(`/shutter/${id}/update_times/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ open_duration: open, close_duration: close })
+      }).then(() => {
+        const msg = document.getElementById(`saved-msg-${id}`);
+        msg.style.display = 'inline';
+        setTimeout(() => msg.style.display = 'none', 2000);
+      });
+    }
+  </script>
+</body>
+</html>
