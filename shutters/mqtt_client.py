@@ -25,16 +25,28 @@ class MQTTService:
             state_data = json.loads(msg.payload.decode())
 
             for shutter in Shutter.objects.all():
+                shutter.refresh_from_db()  # aktualny stan rolety
+
                 input_open_key = f"input{shutter.input_open}"
                 input_close_key = f"input{shutter.input_close}"
 
-                if input_open_key in state_data and state_data[input_open_key]["value"]:
-                    print(f"Sterowanie wejściem: otwieranie {shutter.name}")
-                    control_shutter(shutter, 'open', self)
+                input_open_triggered = state_data.get(input_open_key, {}).get("value", False)
+                input_close_triggered = state_data.get(input_close_key, {}).get("value", False)
 
-                elif input_close_key in state_data and state_data[input_close_key]["value"]:
-                    print(f"Sterowanie wejściem: zamykanie {shutter.name}")
+                # **Blokada fizycznych wejść, gdy roleta w ruchu**
+                if shutter.current_state in ['opening', 'closing']:
+                    continue
+
+                if input_open_triggered and shutter.current_state not in ['open', 'opening']:
+                    print(f"Input open triggered for {shutter.name}")
+                    control_shutter(shutter, 'open', self)
+                    self.pending_updates.append({'id': shutter.id, 'action': 'open', 'duration': shutter.open_duration})
+
+                elif input_close_triggered and shutter.current_state not in ['closed', 'closing']:
+                    print(f"Input close triggered for {shutter.name}")
                     control_shutter(shutter, 'close', self)
+                    self.pending_updates.append(
+                        {'id': shutter.id, 'action': 'close', 'duration': shutter.close_duration})
 
         except Exception as e:
             print("State parse error:", e)

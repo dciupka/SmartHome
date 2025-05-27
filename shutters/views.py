@@ -17,8 +17,14 @@ def index(request):
 
 def control_shutter_view(request, shutter_id, action):
     shutter = get_object_or_404(Shutter, pk=shutter_id)
+
+    # Blokada akcji, jeśli roleta jest w ruchu
+    if shutter.current_state in ['opening', 'closing']:
+        return JsonResponse({'error': 'Roleta jest w trakcie ruchu, spróbuj później.'}, status=400)
+
     control_shutter(shutter, action, mqtt_service)
     return JsonResponse({'status': f'{action} command sent to {shutter.name}'})
+
 
 
 def mqtt_settings(request):

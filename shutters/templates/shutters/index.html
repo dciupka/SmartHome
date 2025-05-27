@@ -1,10 +1,12 @@
 {% load static %}
 <!DOCTYPE html>
-<html>
+<html lang="pl">
 <head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sterowanie roletami</title>
-  <link rel="stylesheet" href="{% static 'shutters/style.css' %}">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="{% static 'shutters/style.css' %}" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 
@@ -12,7 +14,7 @@
   <h1>Sterowanie roletami</h1>
 
   {% for shutter in shutters %}
-    <div class="shutter">
+    <div class="shutter" data-id="{{ shutter.id }}">
       <h2>{{ shutter.name }}</h2>
       <p>Status:
         <span id="status-{{ shutter.id }}" class="status {{ shutter.current_state }}">
@@ -24,22 +26,27 @@
         </span>
       </p>
 
-      <label>Czas otwierania (s):</label>
-      <input type="text" id="open-{{ shutter.id }}" value="{{ shutter.open_duration }}">
-      <label>Czas zamykania (s):</label>
-      <input type="text" id="close-{{ shutter.id }}" value="{{ shutter.close_duration }}">
-      <button onclick="updateTimes({{ shutter.id }})">
-        <i class="fas fa-save"></i> Zapisz czasy
-      </button>
-      <div id="saved-msg-{{ shutter.id }}" class="saved-msg" style="display:none;">Zapisano!</div>
-      <br><br>
+      <div class="duration-inputs">
+        <label for="open-{{ shutter.id }}">Czas otwierania (s):</label>
+        <input type="number" min="0" step="0.1" id="open-{{ shutter.id }}" value="{{ shutter.open_duration }}" />
 
-      <button onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
-        <i class="fas fa-arrow-up"></i> Otwórz
-      </button>
-      <button onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
-        <i class="fas fa-arrow-down"></i> Zamknij
-      </button>
+        <label for="close-{{ shutter.id }}">Czas zamykania (s):</label>
+        <input type="number" min="0" step="0.1" id="close-{{ shutter.id }}" value="{{ shutter.close_duration }}" />
+
+        <button onclick="updateTimes({{ shutter.id }})">
+          <i class="fas fa-save"></i> Zapisz czasy
+        </button>
+        <div id="saved-msg-{{ shutter.id }}" class="saved-msg" style="display:none;">Zapisano!</div>
+      </div>
+
+      <div class="button-group">
+        <button id="btn-open-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
+          <i class="fas fa-arrow-up"></i> Otwórz
+        </button>
+        <button id="btn-close-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
+          <i class="fas fa-arrow-down"></i> Zamknij
+        </button>
+      </div>
 
       <div class="progress-container">
         <div class="progress-bar" id="progress-{{ shutter.id }}"></div>
@@ -47,20 +54,60 @@
     </div>
   {% endfor %}
 
-  <br><a href="/mqtt/settings/">Ustawienia MQTT</a>
+  <br />
+  <a href="/mqtt/settings/">Ustawienia MQTT</a>
 
   <script>
+    function updateButtonStates(id, state) {
+      const btnOpen = document.getElementById(`btn-open-${id}`);
+      const btnClose = document.getElementById(`btn-close-${id}`);
+
+      if (state === 'opening' || state === 'closing') {
+        // Blokujemy oba przyciski podczas ruchu
+        btnOpen.disabled = true;
+        btnOpen.style.background = '#6c757d';
+        btnClose.disabled = true;
+        btnClose.style.background = '#6c757d';
+      } else if (state === 'open') {
+        // Otwarte - zablokuj otwórz, odblokuj zamknij
+        btnOpen.disabled = true;
+        btnOpen.style.background = '#6c757d';
+        btnClose.disabled = false;
+        btnClose.style.background = '#007bff';
+      } else if (state === 'closed') {
+        // Zamknięte - zablokuj zamknij, odblokuj otwórz
+        btnClose.disabled = true;
+        btnClose.style.background = '#6c757d';
+        btnOpen.disabled = false;
+        btnOpen.style.background = '#007bff';
+      } else {
+        // Inny lub nieznany status - oba aktywne
+        btnOpen.disabled = false;
+        btnOpen.style.background = '#007bff';
+        btnClose.disabled = false;
+        btnClose.style.background = '#007bff';
+      }
+    }
+
     function control(id, action, duration) {
+      const btnOpen = document.getElementById(`btn-open-${id}`);
+      const btnClose = document.getElementById(`btn-close-${id}`);
+
+      if ((action === 'open' && btnOpen.disabled) || (action === 'close' && btnClose.disabled)) {
+        alert(`Roleta już jest w stanie '${action}', akcja zablokowana.`);
+        return;
+      }
+
       fetch(`/shutter/${id}/${action}/`)
         .then(() => {
-          // Aktualizacja statusu lokalnie
           const status = document.getElementById(`status-${id}`);
           status.innerHTML = `<i class="fas fa-circle" style="color: ${
             action === 'open' ? 'green' : 'red'
           };"></i> ${action}`;
           status.className = `status ${action}`;
 
-          // Animacja paska postępu
+          updateButtonStates(id, action === 'open' ? 'opening' : 'closing');
+
           const bar = document.getElementById(`progress-${id}`);
           bar.style.transition = 'none';
           bar.style.width = '0%';
@@ -68,6 +115,15 @@
             bar.style.transition = `width ${duration}s linear`;
             bar.style.width = '100%';
           }, 100);
+
+          setTimeout(() => {
+            const finalState = action === 'open' ? 'open' : 'closed';
+            status.innerHTML = `<i class="fas fa-circle" style="color: ${
+              finalState === 'open' ? 'green' : 'red'
+            };"></i> ${finalState}`;
+            status.className = `status ${finalState}`;
+            updateButtonStates(id, finalState);
+          }, duration * 1000);
         });
     }
 
@@ -85,9 +141,53 @@
       }).then(() => {
         const msg = document.getElementById(`saved-msg-${id}`);
         msg.style.display = 'inline';
-        setTimeout(() => msg.style.display = 'none', 2000);
+        setTimeout(() => (msg.style.display = 'none'), 2000);
       });
     }
+
+    window.onload = function () {
+      {% for shutter in shutters %}
+      updateButtonStates({{ shutter.id }}, '{{ shutter.current_state }}');
+      {% endfor %}
+    };
+
+    setInterval(() => {
+      fetch('/shutter/status/')
+        .then((res) => res.json())
+        .then((updates) => {
+          updates.forEach((update) => {
+            const id = update.id;
+            const action = update.action;
+            const duration = update.duration;
+            const status = document.getElementById(`status-${id}`);
+            const bar = document.getElementById(`progress-${id}`);
+
+            if (status) {
+              status.innerHTML = `<i class="fas fa-circle" style="color: ${
+                action === 'open' ? 'green' : 'red'
+              };"></i> ${action}`;
+              status.className = `status ${action}`;
+              updateButtonStates(id, action);
+
+              bar.style.transition = 'none';
+              bar.style.width = '0%';
+              setTimeout(() => {
+                bar.style.transition = `width ${duration}s linear`;
+                bar.style.width = '100%';
+              }, 100);
+
+              setTimeout(() => {
+                const finalState = action === 'open' ? 'open' : 'closed';
+                status.innerHTML = `<i class="fas fa-circle" style="color: ${
+                  finalState === 'open' ? 'green' : 'red'
+                };"></i> ${finalState}`;
+                status.className = `status ${finalState}`;
+                updateButtonStates(id, finalState);
+              }, duration * 1000);
+            }
+          });
+        });
+    }, 2000);
   </script>
 </body>
 </html>
