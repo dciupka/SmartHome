@@ -7,9 +7,7 @@
   <title>Sterowanie roletami</title>
   <link rel="stylesheet" href="{% static 'shutters/style.css' %}" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
-
 <body>
   <h1>Sterowanie roletami</h1>
 
@@ -24,6 +22,7 @@
           {% elif shutter.current_state == 'opening' or shutter.current_state == 'closing' %}W trakcie
           {% else %}unknown{% endif %}
         </span>
+        <span id="live-time-{{ shutter.id }}" class="live-time"></span>
       </p>
 
       <div class="duration-inputs">
@@ -63,10 +62,11 @@
 
   <br />
   <a href="/mqtt/settings/">Ustawienia MQTT</a>
-
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script>
     const animating = {};
     const calibData = {};
+    const liveData = {};
 
     function updateButtonStates(id, state) {
       const btnO = document.getElementById(`btn-open-${id}`);
@@ -75,15 +75,11 @@
         btnO.disabled = btnC.disabled = true;
         btnO.style.background = btnC.style.background = '#6c757d';
       } else if (state === 'open') {
-        btnO.disabled = true;
-        btnO.style.background = '#6c757d';
-        btnC.disabled = false;
-        btnC.style.background = '#007bff';
+        btnO.disabled = true; btnO.style.background = '#6c757d';
+        btnC.disabled = false; btnC.style.background = '#007bff';
       } else if (state === 'closed') {
-        btnC.disabled = true;
-        btnC.style.background = '#6c757d';
-        btnO.disabled = false;
-        btnO.style.background = '#007bff';
+        btnC.disabled = true; btnC.style.background = '#6c757d';
+        btnO.disabled = false; btnO.style.background = '#007bff';
       } else {
         btnO.disabled = btnC.disabled = false;
         btnO.style.background = btnC.style.background = '#007bff';
@@ -93,10 +89,10 @@
     function renderStatus(id, state) {
       const span = document.getElementById(`status-${id}`);
       let label, color;
-      if (state === 'open') { label='open'; color='green'; }
-      else if (state === 'closed'){ label='closed'; color='red'; }
-      else if (state==='opening'||state==='closing'){ label='W trakcie'; color='orange'; }
-      else { label='unknown'; color='gray'; }
+      if (state === 'open')      { label='open';       color='green'; }
+      else if (state === 'closed'){ label='closed';     color='red';   }
+      else if (state === 'opening' || state === 'closing') { label='W trakcie'; color='orange'; }
+      else                        { label='unknown';    color='gray';  }
       span.className = `status ${state}`;
       span.innerHTML = `<i class="fas fa-circle" style="color:${color}"></i> ${label}`;
     }
@@ -107,70 +103,85 @@
       setTimeout(() => { bar.style.transition = `width ${duration}s linear`; bar.style.width = '100%'; }, 50);
     }
 
+    function startLiveTimer(id) {
+      const disp = document.getElementById(`live-time-${id}`);
+      liveData[id] = { start: performance.now() };
+      disp.textContent = '0.0s';
+      liveData[id].timer = setInterval(() => {
+        const e = (performance.now() - liveData[id].start)/1000;
+        disp.textContent = e.toFixed(1) + 's';
+      }, 100);
+    }
+
+    function stopLiveTimer(id) {
+      const d = liveData[id];
+      if (d && d.timer) { clearInterval(d.timer); delete liveData[id]; }
+    }
+
     function control(id, action, duration) {
       const btnO = document.getElementById(`btn-open-${id}`);
       const btnC = document.getElementById(`btn-close-${id}`);
-      if ((action==='open'&&btnO.disabled)||(action==='close'&&btnC.disabled)) return;
+      if ((action==='open' && btnO.disabled) || (action==='close' && btnC.disabled)) return;
       fetch(`/shutter/${id}/${action}/`).then(() => {
-        const intermediate = action==='open'?'opening':'closing';
-        renderStatus(id, intermediate);
-        updateButtonStates(id, intermediate);
+        const mid = action==='open' ? 'opening' : 'closing';
+        renderStatus(id, mid);
+        updateButtonStates(id, mid);
         if (!animating[id]) {
-          animating[id]=true;
+          animating[id] = true;
           animateBar(id, duration);
-          setTimeout(()=>{
-            const final = action==='open'?'open':'closed';
-            renderStatus(id, final);
-            updateButtonStates(id, final);
-            animating[id]=false;
-          }, duration*1000);
+          startLiveTimer(id);
+          setTimeout(() => {
+            stopLiveTimer(id);
+            const fin = action==='open' ? 'open' : 'closed';
+            renderStatus(id, fin);
+            updateButtonStates(id, fin);
+            animating[id] = false;
+          }, duration * 1000);
         }
       });
     }
 
     function updateTimes(id) {
-      const open  = parseFloat(document.getElementById(`open-${id}`).value);
+      const open = parseFloat(document.getElementById(`open-${id}`).value);
       const close = parseFloat(document.getElementById(`close-${id}`).value);
       fetch(`/shutter/${id}/update_times/`, {
-        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
+        method: 'POST', headers: { 'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}' },
         body: JSON.stringify({ open_duration:open, close_duration:close })
-      }).then(() => {
-        const msg=document.getElementById(`saved-msg-${id}`);
-        msg.style.display='inline'; setTimeout(()=>{ msg.style.display='none'; location.reload(); },1500);
-      });
+      }).then(() => { location.reload(); });
     }
 
     function wireCalibrate(id, action) {
       const btn = document.getElementById(`cal-${action}-${id}`);
-      const display = document.getElementById(`cal-${action}-time-${id}`);
+      const disp = document.getElementById(`cal-${action}-time-${id}`);
       btn.addEventListener('mousedown', () => {
         calibData[`${action}-${id}`] = {
           start: performance.now(),
           timer: setInterval(() => {
-            const elapsed = (performance.now() - calibData[`${action}-${id}`].start) / 1000;
-            display.textContent = elapsed.toFixed(1) + 's';
+            const elapsed = (performance.now() - calibData[`${action}-${id}`].start)/1000;
+            disp.textContent = elapsed.toFixed(1) + 's';
           }, 100)
         };
+        // start motor
         fetch(`/shutter/${id}/calibrate/${action}/start/`);
       });
       btn.addEventListener('mouseup', () => {
-        const data = calibData[`${action}-${id}`];
-        clearInterval(data.timer);
-        const elapsed = (performance.now() - data.start) / 1000;
+        const d = calibData[`${action}-${id}`]; clearInterval(d.timer);
+        const elapsed = (performance.now() - d.start)/1000;
+        // stop motor
         fetch(`/shutter/${id}/calibrate/${action}/stop/`, {
-          method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
+          method:'POST', headers:{ 'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}' },
           body: JSON.stringify({ duration: elapsed })
         }).then(() => {
-          display.textContent = elapsed.toFixed(1) + 's';
-          if (action==='open') document.getElementById(`open-${id}`).value = elapsed.toFixed(1);
-          if (action==='close') document.getElementById(`close-${id}`).value = elapsed.toFixed(1);
+          disp.textContent = elapsed.toFixed(1) + 's';
+          if(action==='open') document.getElementById(`open-${id}`).value = elapsed.toFixed(1);
+          else document.getElementById(`close-${id}`).value = elapsed.toFixed(1);
         });
       });
     }
 
     window.addEventListener('DOMContentLoaded', () => {
       {% for shutter in shutters %}
-        animating[{{ shutter.id }}]=false;
+        animating[{{ shutter.id }}] = false;
         renderStatus({{ shutter.id }}, '{{ shutter.current_state }}');
         updateButtonStates({{ shutter.id }}, '{{ shutter.current_state }}');
         wireCalibrate({{ shutter.id }}, 'open');
@@ -179,22 +190,26 @@
     });
 
     setInterval(() => {
-      fetch('/shutter/status/').then(res=>res.json()).then(updates=>{
-        updates.forEach(u=>{
-          renderStatus(u.id, u.action);
-          updateButtonStates(u.id, u.action);
-          if((u.action==='opening'||u.action==='closing')&&!animating[u.id]){
-            animating[u.id]=true;
-            animateBar(u.id,u.duration);
-            setTimeout(()=>{
-              const final=u.action==='opening'?'open':'closed';
-              renderStatus(u.id, final);
-              updateButtonStates(u.id, final);
-              animating[u.id]=false;
-            },u.duration*1000);
-          }
+      fetch('/shutter/status/')
+        .then(res => res.json())
+        .then(updates => {
+          updates.forEach(u => {
+            renderStatus(u.id, u.action);
+            updateButtonStates(u.id, u.action);
+            if ((u.action==='opening'||u.action==='closing') && !animating[u.id]) {
+              animating[u.id] = true;
+              animateBar(u.id,u.duration);
+              startLiveTimer(u.id);
+              setTimeout(()=>{
+                stopLiveTimer(u.id);
+                const fin = u.action==='opening'?'open':'closed';
+                renderStatus(u.id, fin);
+                updateButtonStates(u.id, fin);
+                animating[u.id] = false;
+              },u.duration*1000);
+            }
+          });
         });
-      });
     },2000);
   </script>
 </body>
