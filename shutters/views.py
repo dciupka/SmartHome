@@ -51,3 +51,32 @@ def get_shutter_updates(request):
     """
     updates = mqtt_service.consume_pending_updates()
     return JsonResponse(updates, safe=False)
+
+@csrf_exempt
+def calibrate_start(request, shutter_id, action):
+    """ Włącza przekaźnik od otwierania lub zamykania """
+    shutter = get_object_or_404(Shutter, pk=shutter_id)
+    relay = shutter.relay_open if action == 'open' else shutter.relay_close
+    mqtt_service.publish(f'output{relay}', True)
+    return JsonResponse({'status': 'started'})
+
+@csrf_exempt
+def calibrate_stop(request, shutter_id, action):
+    """
+    Wyłącza przekaźnik, zapisuje zmierzony czas jako open_duration
+    lub close_duration, zwraca zmierzoną wartość.
+    """
+    shutter = get_object_or_404(Shutter, pk=shutter_id)
+    relay = shutter.relay_open if action == 'open' else shutter.relay_close
+    mqtt_service.publish(f'output{relay}', False)
+
+    data = json.loads(request.body or '{}')
+    measured = data.get('duration')
+    if measured is not None:
+        if action == 'open':
+            shutter.open_duration = measured
+        else:
+            shutter.close_duration = measured
+        shutter.save()
+
+    return JsonResponse({'status': 'stopped', 'duration': measured})

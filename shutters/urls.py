@@ -12,4 +12,9 @@ urlpatterns = [
     # Na końcu ogólne z <str:action>
     path('shutter/<int:shutter_id>/<str:action>/', views.control_shutter_view, name='control_shutter'),
 
+# kalibracja
+    path('shutter/<int:shutter_id>/calibrate/<str:action>/start/', views.calibrate_start, name='calibrate_start'),
+    path('shutter/<int:shutter_id>/calibrate/<str:action>/stop/', views.calibrate_stop, name='calibrate_stop'),
+    path('shutter/<int:shutter_id>/<str:action>/', views.control_shutter_view, name='control_shutter'),
 ]
+

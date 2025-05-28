@@ -40,18 +40,23 @@
       </div>
 
       <div class="button-group">
-        <button id="btn-open-{{ shutter.id }}"
-                onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
+        <button id="btn-open-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
           <i class="fas fa-arrow-up"></i> Otwórz
         </button>
-        <button id="btn-close-{{ shutter.id }}"
-                onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
+        <button id="btn-close-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
           <i class="fas fa-arrow-down"></i> Zamknij
         </button>
       </div>
 
       <div class="progress-container">
         <div class="progress-bar" id="progress-{{ shutter.id }}"></div>
+      </div>
+
+      <div class="calibration">
+        <button id="cal-open-{{ shutter.id }}">Kalibracja otwierania</button>
+        <span id="cal-open-time-{{ shutter.id }}" class="cal-time"></span>
+        <button id="cal-close-{{ shutter.id }}">Kalibracja zamykania</button>
+        <span id="cal-close-time-{{ shutter.id }}" class="cal-time"></span>
       </div>
     </div>
   {% endfor %}
@@ -61,6 +66,7 @@
 
   <script>
     const animating = {};
+    const calibData = {};
 
     function updateButtonStates(id, state) {
       const btnO = document.getElementById(`btn-open-${id}`);
@@ -87,44 +93,37 @@
     function renderStatus(id, state) {
       const span = document.getElementById(`status-${id}`);
       let label, color;
-      if (state === 'open')              { label='open';       color='green'; }
-      else if (state === 'closed')       { label='closed';     color='red';   }
-      else if (state === 'opening'
-             || state === 'closing')     { label='W trakcie';  color='orange';}
-      else                                { label='unknown';    color='gray';  }
+      if (state === 'open') { label='open'; color='green'; }
+      else if (state === 'closed'){ label='closed'; color='red'; }
+      else if (state==='opening'||state==='closing'){ label='W trakcie'; color='orange'; }
+      else { label='unknown'; color='gray'; }
       span.className = `status ${state}`;
       span.innerHTML = `<i class="fas fa-circle" style="color:${color}"></i> ${label}`;
     }
 
     function animateBar(id, duration) {
       const bar = document.getElementById(`progress-${id}`);
-      bar.style.transition = 'none';
-      bar.style.width = '0%';
-      setTimeout(() => {
-        bar.style.transition = `width ${duration}s linear`;
-        bar.style.width = '100%';
-      }, 50);
+      bar.style.transition = 'none'; bar.style.width = '0%';
+      setTimeout(() => { bar.style.transition = `width ${duration}s linear`; bar.style.width = '100%'; }, 50);
     }
 
     function control(id, action, duration) {
       const btnO = document.getElementById(`btn-open-${id}`);
       const btnC = document.getElementById(`btn-close-${id}`);
-      if ((action === 'open' && btnO.disabled) || (action === 'close' && btnC.disabled)) {
-        return alert(`Akcja '${action}' zablokowana.`);
-      }
+      if ((action==='open'&&btnO.disabled)||(action==='close'&&btnC.disabled)) return;
       fetch(`/shutter/${id}/${action}/`).then(() => {
-        const intermediate = action==='open' ? 'opening' : 'closing';
+        const intermediate = action==='open'?'opening':'closing';
         renderStatus(id, intermediate);
         updateButtonStates(id, intermediate);
         if (!animating[id]) {
-          animating[id] = true;
+          animating[id]=true;
           animateBar(id, duration);
-          setTimeout(() => {
-            const final = action==='open' ? 'open' : 'closed';
+          setTimeout(()=>{
+            const final = action==='open'?'open':'closed';
             renderStatus(id, final);
             updateButtonStates(id, final);
-            animating[id] = false;
-          }, duration * 1000);
+            animating[id]=false;
+          }, duration*1000);
         }
       });
     }
@@ -133,52 +132,70 @@
       const open  = parseFloat(document.getElementById(`open-${id}`).value);
       const close = parseFloat(document.getElementById(`close-${id}`).value);
       fetch(`/shutter/${id}/update_times/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type':'application/json',
-          'X-CSRFToken':'{{ csrf_token }}'
-        },
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
         body: JSON.stringify({ open_duration:open, close_duration:close })
-      })
-      .then(() => {
-        const msg = document.getElementById(`saved-msg-${id}`);
-        msg.style.display = 'inline';
-        setTimeout(() => {
-          msg.style.display = 'none';
-          // reload page to reflect new durations:
-          location.reload();
-        }, 1500);
+      }).then(() => {
+        const msg=document.getElementById(`saved-msg-${id}`);
+        msg.style.display='inline'; setTimeout(()=>{ msg.style.display='none'; location.reload(); },1500);
       });
     }
 
-    window.onload = () => {
+    function wireCalibrate(id, action) {
+      const btn = document.getElementById(`cal-${action}-${id}`);
+      const display = document.getElementById(`cal-${action}-time-${id}`);
+      btn.addEventListener('mousedown', () => {
+        calibData[`${action}-${id}`] = {
+          start: performance.now(),
+          timer: setInterval(() => {
+            const elapsed = (performance.now() - calibData[`${action}-${id}`].start) / 1000;
+            display.textContent = elapsed.toFixed(1) + 's';
+          }, 100)
+        };
+        fetch(`/shutter/${id}/calibrate/${action}/start/`);
+      });
+      btn.addEventListener('mouseup', () => {
+        const data = calibData[`${action}-${id}`];
+        clearInterval(data.timer);
+        const elapsed = (performance.now() - data.start) / 1000;
+        fetch(`/shutter/${id}/calibrate/${action}/stop/`, {
+          method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}'},
+          body: JSON.stringify({ duration: elapsed })
+        }).then(() => {
+          display.textContent = elapsed.toFixed(1) + 's';
+          if (action==='open') document.getElementById(`open-${id}`).value = elapsed.toFixed(1);
+          if (action==='close') document.getElementById(`close-${id}`).value = elapsed.toFixed(1);
+        });
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
       {% for shutter in shutters %}
-        animating[{{ shutter.id }}] = false;
+        animating[{{ shutter.id }}]=false;
         renderStatus({{ shutter.id }}, '{{ shutter.current_state }}');
         updateButtonStates({{ shutter.id }}, '{{ shutter.current_state }}');
+        wireCalibrate({{ shutter.id }}, 'open');
+        wireCalibrate({{ shutter.id }}, 'close');
       {% endfor %}
-    };
+    });
 
     setInterval(() => {
-      fetch('/shutter/status/')
-        .then(res => res.json())
-        .then(updates => {
-          updates.forEach(u => {
-            renderStatus(u.id, u.action);
-            updateButtonStates(u.id, u.action);
-            if ((u.action==='opening'||u.action==='closing') && !animating[u.id]) {
-              animating[u.id] = true;
-              animateBar(u.id, u.duration);
-              setTimeout(() => {
-                const final = u.action==='opening' ? 'open' : 'closed';
-                renderStatus(u.id, final);
-                updateButtonStates(u.id, final);
-                animating[u.id] = false;
-              }, u.duration * 1000);
-            }
-          });
+      fetch('/shutter/status/').then(res=>res.json()).then(updates=>{
+        updates.forEach(u=>{
+          renderStatus(u.id, u.action);
+          updateButtonStates(u.id, u.action);
+          if((u.action==='opening'||u.action==='closing')&&!animating[u.id]){
+            animating[u.id]=true;
+            animateBar(u.id,u.duration);
+            setTimeout(()=>{
+              const final=u.action==='opening'?'open':'closed';
+              renderStatus(u.id, final);
+              updateButtonStates(u.id, final);
+              animating[u.id]=false;
+            },u.duration*1000);
+          }
         });
-    }, 2000);
+      });
+    },2000);
   </script>
 </body>
 </html>
