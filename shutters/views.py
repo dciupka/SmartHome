@@ -3,7 +3,7 @@ from .models import Shutter, MQTTConfig
 from .forms import MQTTConfigForm
 from django.http import JsonResponse
 from .actions.shutter_actions import control_shutter
-from .mqtt_client import mqtt_service  # import bezpieczny po przeniesieniu logiki do shutter_actions
+from .mqtt_client import mqtt_service
 
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -17,14 +17,8 @@ def index(request):
 
 def control_shutter_view(request, shutter_id, action):
     shutter = get_object_or_404(Shutter, pk=shutter_id)
-
-    # Blokada akcji, jeśli roleta jest w ruchu
-    if shutter.current_state in ['opening', 'closing']:
-        return JsonResponse({'error': 'Roleta jest w trakcie ruchu, spróbuj później.'}, status=400)
-
     control_shutter(shutter, action, mqtt_service)
     return JsonResponse({'status': f'{action} command sent to {shutter.name}'})
-
 
 
 def mqtt_settings(request):
@@ -49,3 +43,12 @@ def update_times(request, shutter_id):
     shutter.close_duration = data.get('close_duration', shutter.close_duration)
     shutter.save()
     return JsonResponse({'status': 'updated'})
+
+
+def get_shutter_updates(request):
+    """
+    Zwraca listę pending updates z MQTTService.consume_pending_updates(),
+    np. [{ 'id': 1, 'action': 'inprogress', 'duration': 5 }, …]
+    """
+    updates = mqtt_service.consume_pending_updates()
+    return JsonResponse(updates, safe=False)
