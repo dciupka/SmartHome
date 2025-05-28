@@ -22,8 +22,7 @@
           {% if shutter.current_state == 'open' %}open
           {% elif shutter.current_state == 'closed' %}closed
           {% elif shutter.current_state == 'opening' or shutter.current_state == 'closing' %}W trakcie
-          {% else %}unknown
-          {% endif %}
+          {% else %}unknown{% endif %}
         </span>
       </p>
 
@@ -41,10 +40,12 @@
       </div>
 
       <div class="button-group">
-        <button id="btn-open-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
+        <button id="btn-open-{{ shutter.id }}"
+                onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
           <i class="fas fa-arrow-up"></i> Otwórz
         </button>
-        <button id="btn-close-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
+        <button id="btn-close-{{ shutter.id }}"
+                onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
           <i class="fas fa-arrow-down"></i> Zamknij
         </button>
       </div>
@@ -86,10 +87,11 @@
     function renderStatus(id, state) {
       const span = document.getElementById(`status-${id}`);
       let label, color;
-      if (state === 'open')      { label = 'open'; color = 'green'; }
-      else if (state === 'closed'){ label = 'closed'; color = 'red'; }
-      else if (state === 'opening' || state === 'closing') { label = 'W trakcie'; color = 'orange'; }
-      else                        { label = 'unknown'; color = 'gray'; }
+      if (state === 'open')              { label='open';       color='green'; }
+      else if (state === 'closed')       { label='closed';     color='red';   }
+      else if (state === 'opening'
+             || state === 'closing')     { label='W trakcie';  color='orange';}
+      else                                { label='unknown';    color='gray';  }
       span.className = `status ${state}`;
       span.innerHTML = `<i class="fas fa-circle" style="color:${color}"></i> ${label}`;
     }
@@ -111,14 +113,14 @@
         return alert(`Akcja '${action}' zablokowana.`);
       }
       fetch(`/shutter/${id}/${action}/`).then(() => {
-        const intermediate = action === 'open' ? 'opening' : 'closing';
+        const intermediate = action==='open' ? 'opening' : 'closing';
         renderStatus(id, intermediate);
         updateButtonStates(id, intermediate);
         if (!animating[id]) {
           animating[id] = true;
           animateBar(id, duration);
           setTimeout(() => {
-            const final = action === 'open' ? 'open' : 'closed';
+            const final = action==='open' ? 'open' : 'closed';
             renderStatus(id, final);
             updateButtonStates(id, final);
             animating[id] = false;
@@ -128,16 +130,24 @@
     }
 
     function updateTimes(id) {
-      const open = parseFloat(document.getElementById(`open-${id}`).value);
+      const open  = parseFloat(document.getElementById(`open-${id}`).value);
       const close = parseFloat(document.getElementById(`close-${id}`).value);
       fetch(`/shutter/${id}/update_times/`, {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}' },
+        method: 'POST',
+        headers: {
+          'Content-Type':'application/json',
+          'X-CSRFToken':'{{ csrf_token }}'
+        },
         body: JSON.stringify({ open_duration:open, close_duration:close })
-      }).then(() => {
+      })
+      .then(() => {
         const msg = document.getElementById(`saved-msg-${id}`);
         msg.style.display = 'inline';
-        setTimeout(() => msg.style.display = 'none', 2000);
+        setTimeout(() => {
+          msg.style.display = 'none';
+          // reload page to reflect new durations:
+          location.reload();
+        }, 1500);
       });
     }
 
@@ -156,11 +166,11 @@
           updates.forEach(u => {
             renderStatus(u.id, u.action);
             updateButtonStates(u.id, u.action);
-            if ((u.action === 'opening' || u.action === 'closing') && !animating[u.id]) {
+            if ((u.action==='opening'||u.action==='closing') && !animating[u.id]) {
               animating[u.id] = true;
               animateBar(u.id, u.duration);
               setTimeout(() => {
-                const final = u.action === 'opening' ? 'open' : 'closed';
+                const final = u.action==='opening' ? 'open' : 'closed';
                 renderStatus(u.id, final);
                 updateButtonStates(u.id, final);
                 animating[u.id] = false;
