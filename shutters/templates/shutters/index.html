@@ -21,7 +21,7 @@
           <i class="fas fa-circle"></i>
           {% if shutter.current_state == 'open' %}open
           {% elif shutter.current_state == 'closed' %}closed
-          {% elif shutter.current_state == 'inprogress' %}W trakcie
+          {% elif shutter.current_state == 'opening' or shutter.current_state == 'closing' %}W trakcie
           {% else %}unknown
           {% endif %}
         </span>
@@ -59,12 +59,12 @@
   <a href="/mqtt/settings/">Ustawienia MQTT</a>
 
   <script>
+    const animating = {};
+
     function updateButtonStates(id, state) {
       const btnO = document.getElementById(`btn-open-${id}`);
       const btnC = document.getElementById(`btn-close-${id}`);
-
-      if (state === 'inprogress') {
-        // oba zablokowane
+      if (state === 'opening' || state === 'closing') {
         btnO.disabled = btnC.disabled = true;
         btnO.style.background = btnC.style.background = '#6c757d';
       } else if (state === 'open') {
@@ -78,7 +78,6 @@
         btnO.disabled = false;
         btnO.style.background = '#007bff';
       } else {
-        // unknown
         btnO.disabled = btnC.disabled = false;
         btnO.style.background = btnC.style.background = '#007bff';
       }
@@ -87,32 +86,44 @@
     function renderStatus(id, state) {
       const span = document.getElementById(`status-${id}`);
       let label, color;
-      if (state === 'open')      { label='open'; color='green'; }
-      else if (state === 'closed'){ label='closed'; color='red'; }
-      else if (state === 'inprogress'){ label='W trakcie'; color='orange'; }
-      else                        { label='unknown'; color='gray'; }
+      if (state === 'open')      { label = 'open'; color = 'green'; }
+      else if (state === 'closed'){ label = 'closed'; color = 'red'; }
+      else if (state === 'opening' || state === 'closing') { label = 'W trakcie'; color = 'orange'; }
+      else                        { label = 'unknown'; color = 'gray'; }
       span.className = `status ${state}`;
       span.innerHTML = `<i class="fas fa-circle" style="color:${color}"></i> ${label}`;
+    }
+
+    function animateBar(id, duration) {
+      const bar = document.getElementById(`progress-${id}`);
+      bar.style.transition = 'none';
+      bar.style.width = '0%';
+      setTimeout(() => {
+        bar.style.transition = `width ${duration}s linear`;
+        bar.style.width = '100%';
+      }, 50);
     }
 
     function control(id, action, duration) {
       const btnO = document.getElementById(`btn-open-${id}`);
       const btnC = document.getElementById(`btn-close-${id}`);
-      if ((action==='open' && btnO.disabled) || (action==='close' && btnC.disabled)) {
-        alert(`Akcja '${action}' zablokowana.`);
-        return;
+      if ((action === 'open' && btnO.disabled) || (action === 'close' && btnC.disabled)) {
+        return alert(`Akcja '${action}' zablokowana.`);
       }
       fetch(`/shutter/${id}/${action}/`).then(() => {
-        renderStatus(id, 'inprogress');
-        updateButtonStates(id, 'inprogress');
-        const bar = document.getElementById(`progress-${id}`);
-        bar.style.transition='none'; bar.style.width='0%';
-        setTimeout(()=>{ bar.style.transition=`width ${duration}s linear`; bar.style.width='100%'; },100);
-        setTimeout(()=>{
-          const finalState = action==='open' ? 'open' : 'closed';
-          renderStatus(id, finalState);
-          updateButtonStates(id, finalState);
-        }, duration*1000);
+        const intermediate = action === 'open' ? 'opening' : 'closing';
+        renderStatus(id, intermediate);
+        updateButtonStates(id, intermediate);
+        if (!animating[id]) {
+          animating[id] = true;
+          animateBar(id, duration);
+          setTimeout(() => {
+            const final = action === 'open' ? 'open' : 'closed';
+            renderStatus(id, final);
+            updateButtonStates(id, final);
+            animating[id] = false;
+          }, duration * 1000);
+        }
       });
     }
 
@@ -123,14 +134,16 @@
         method:'POST',
         headers:{ 'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}' },
         body: JSON.stringify({ open_duration:open, close_duration:close })
-      }).then(()=>{
-        const msg=document.getElementById(`saved-msg-${id}`);
-        msg.style.display='inline'; setTimeout(()=>msg.style.display='none',2000);
+      }).then(() => {
+        const msg = document.getElementById(`saved-msg-${id}`);
+        msg.style.display = 'inline';
+        setTimeout(() => msg.style.display = 'none', 2000);
       });
     }
 
     window.onload = () => {
       {% for shutter in shutters %}
+        animating[{{ shutter.id }}] = false;
         renderStatus({{ shutter.id }}, '{{ shutter.current_state }}');
         updateButtonStates({{ shutter.id }}, '{{ shutter.current_state }}');
       {% endfor %}
@@ -138,22 +151,24 @@
 
     setInterval(() => {
       fetch('/shutter/status/')
-        .then(res=>res.json())
-        .then(updates=>{
-          updates.forEach(u=>{
+        .then(res => res.json())
+        .then(updates => {
+          updates.forEach(u => {
             renderStatus(u.id, u.action);
             updateButtonStates(u.id, u.action);
-            const bar=document.getElementById(`progress-${u.id}`);
-            bar.style.transition='none'; bar.style.width='0%';
-            setTimeout(()=>{ bar.style.transition=`width ${u.duration}s linear`; bar.style.width='100%'; },100);
-            setTimeout(()=>{
-              const fs = u.action==='open'?'open':'closed';
-              renderStatus(u.id, fs);
-              updateButtonStates(u.id, fs);
-            }, u.duration*1000);
+            if ((u.action === 'opening' || u.action === 'closing') && !animating[u.id]) {
+              animating[u.id] = true;
+              animateBar(u.id, u.duration);
+              setTimeout(() => {
+                const final = u.action === 'opening' ? 'open' : 'closed';
+                renderStatus(u.id, final);
+                updateButtonStates(u.id, final);
+                animating[u.id] = false;
+              }, u.duration * 1000);
+            }
           });
         });
-    },2000);
+    }, 2000);
   </script>
 </body>
 </html>

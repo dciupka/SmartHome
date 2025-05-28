@@ -1,13 +1,13 @@
 from django.shortcuts import render, get_object_or_404, redirect
-from .models import Shutter, MQTTConfig
-from .forms import MQTTConfigForm
 from django.http import JsonResponse
-from .actions.shutter_actions import control_shutter
-from .mqtt_client import mqtt_service
-
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import json
+
+from .models import Shutter, MQTTConfig
+from .forms import MQTTConfigForm
+from .actions.shutter_actions import control_shutter
+from .mqtt_client import mqtt_service
 
 
 def index(request):
@@ -18,7 +18,7 @@ def index(request):
 def control_shutter_view(request, shutter_id, action):
     shutter = get_object_or_404(Shutter, pk=shutter_id)
     control_shutter(shutter, action, mqtt_service)
-    return JsonResponse({'status': f'{action} command sent to {shutter.name}'})
+    return JsonResponse({'status': f"{action} command sent to {shutter.name}"})
 
 
 def mqtt_settings(request):
@@ -30,7 +30,6 @@ def mqtt_settings(request):
             return redirect('/')
     else:
         form = MQTTConfigForm(instance=config)
-
     return render(request, 'shutters/mqtt_settings.html', {'form': form})
 
 
@@ -47,8 +46,8 @@ def update_times(request, shutter_id):
 
 def get_shutter_updates(request):
     """
-    Zwraca listę pending updates z MQTTService.consume_pending_updates(),
-    np. [{ 'id': 1, 'action': 'inprogress', 'duration': 5 }, …]
+    Zwraca listę oczekujących aktualizacji (pending updates) z MQTTService,
+    używaną przez frontend do synchronizacji stanów i animacji paska.
     """
     updates = mqtt_service.consume_pending_updates()
     return JsonResponse(updates, safe=False)

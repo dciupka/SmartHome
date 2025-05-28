@@ -10,16 +10,17 @@ class MQTTConfig(models.Model):
         return f"MQTT Config to {self.broker_address}:{self.broker_port}"
 
 class Shutter(models.Model):
-    STATES = [
-            ('open', 'Open'),
-            ('closed', 'Closed'),
-            ('inprogress', 'In progress'),
-            ('unknown', 'Unknown'),
-        ]
+    STATE_CHOICES = [
+        ('unknown', 'Unknown'),
+        ('open', 'Open'),
+        ('closed', 'Closed'),
+        ('opening', 'Opening'),
+        ('closing', 'Closing'),
+    ]
 
     current_state = models.CharField(
             max_length=12,
-            choices=STATES,
+            choices=STATE_CHOICES,
             default='unknown'
         )
 
