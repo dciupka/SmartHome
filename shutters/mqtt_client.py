@@ -28,32 +28,45 @@ class MQTTService:
             for shutter in Shutter.objects.all():
                 shutter.refresh_from_db()
 
-                open_key = f"input{shutter.input_open}" if shutter.input_open else None
+                open_key  = f"input{shutter.input_open}"  if shutter.input_open  else None
                 close_key = f"input{shutter.input_close}" if shutter.input_close else None
 
-                open_trig = open_key and state_data.get(open_key, {}).get("value", False)
+                open_trig  = open_key  and state_data.get(open_key,  {}).get("value", False)
                 close_trig = close_key and state_data.get(close_key, {}).get("value", False)
 
-                # Blokujemy open jeśli otwarte lub otwierające się
-                if open_trig:
-                    if shutter.current_state not in ['open', 'opening']:
-                        print(f"Input open triggered for {shutter.name}")
-                        control_shutter(shutter, 'open', self)
-                        self.pending_updates.append({'id': shutter.id, 'action': 'opening', 'duration': shutter.open_duration})
-                    else:
-                        print(f"Ignored open input for {shutter.name} (state={shutter.current_state})")
+                busy     = shutter.current_state in ('opening','closing')
+                at_open  = shutter.current_state == 'open'
+                at_closed= shutter.current_state == 'closed'
 
-                # Blokujemy close jeśli zamknięte lub zamykające się
-                if close_trig:
-                    if shutter.current_state not in ['closed', 'closing']:
-                        print(f"Input close triggered for {shutter.name}")
-                        control_shutter(shutter, 'close', self)
-                        self.pending_updates.append({'id': shutter.id, 'action': 'closing', 'duration': shutter.close_duration})
+                # only fire open if not busy and not already open
+                if open_trig:
+                    if not (busy or at_open):
+                        print(f"Input OPEN → firing for {shutter.name}")
+                        control_shutter(shutter, 'open', self)
+                        self.pending_updates.append({
+                            'id': shutter.id,
+                            'action': 'opening',
+                            'duration': shutter.open_duration
+                        })
                     else:
-                        print(f"Ignored close input for {shutter.name} (state={shutter.current_state})")
+                        print(f"Ignored OPEN for {shutter.name} (state={shutter.current_state})")
+
+                # only fire close if not busy and not already closed
+                if close_trig:
+                    if not (busy or at_closed):
+                        print(f"Input CLOSE → firing for {shutter.name}")
+                        control_shutter(shutter, 'close', self)
+                        self.pending_updates.append({
+                            'id': shutter.id,
+                            'action': 'closing',
+                            'duration': shutter.close_duration
+                        })
+                    else:
+                        print(f"Ignored CLOSE for {shutter.name} (state={shutter.current_state})")
 
         except Exception as e:
             print("State parse error:", e)
+
 
     def publish(self, output_name, value):
         if self.config:
