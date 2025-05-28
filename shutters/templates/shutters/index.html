@@ -9,6 +9,11 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 </head>
 <body>
+  <nav class="navbar">
+    <button id="mode-manual" class="nav-btn active">Tryb manualny</button>
+    <button id="mode-calibrate" class="nav-btn">Kalibracja</button>
+  </nav>
+
   <h1>Sterowanie roletami</h1>
 
   {% for shutter in shutters %}
@@ -25,45 +30,60 @@
         <span id="live-time-{{ shutter.id }}" class="live-time"></span>
       </p>
 
-      <div class="duration-inputs">
-        <label for="open-{{ shutter.id }}">Czas otwierania (s):</label>
-        <input type="number" min="0" step="0.1" id="open-{{ shutter.id }}" value="{{ shutter.open_duration }}" />
+      <!-- Manual controls -->
+      <div class="controls manual-mode">
+        <div class="duration-inputs">
+          <label for="open-{{ shutter.id }}">Czas otwierania (s):</label>
+          <input type="number" min="0" step="0.1" id="open-{{ shutter.id }}" value="{{ shutter.open_duration }}" />
 
-        <label for="close-{{ shutter.id }}">Czas zamykania (s):</label>
-        <input type="number" min="0" step="0.1" id="close-{{ shutter.id }}" value="{{ shutter.close_duration }}" />
+          <label for="close-{{ shutter.id }}">Czas zamykania (s):</label>
+          <input type="number" min="0" step="0.1" id="close-{{ shutter.id }}" value="{{ shutter.close_duration }}" />
 
-        <button onclick="updateTimes({{ shutter.id }})">
-          <i class="fas fa-save"></i> Zapisz czasy
-        </button>
-        <div id="saved-msg-{{ shutter.id }}" class="saved-msg" style="display:none;">Zapisano!</div>
+          <button onclick="updateTimes({{ shutter.id }})">
+            <i class="fas fa-save"></i> Zapisz czasy
+          </button>
+          <div id="saved-msg-{{ shutter.id }}" class="saved-msg" style="display:none;">Zapisano!</div>
+        </div>
+
+        <div class="button-group">
+          <button id="btn-open-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
+            <i class="fas fa-arrow-up"></i> Otwórz
+          </button>
+          <button id="btn-close-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
+            <i class="fas fa-arrow-down"></i> Zamknij
+          </button>
+        </div>
       </div>
 
-      <div class="button-group">
-        <button id="btn-open-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
-          <i class="fas fa-arrow-up"></i> Otwórz
-        </button>
-        <button id="btn-close-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'close', {{ shutter.close_duration }})">
-          <i class="fas fa-arrow-down"></i> Zamknij
-        </button>
-      </div>
-
-      <div class="progress-container">
-        <div class="progress-bar" id="progress-{{ shutter.id }}"></div>
-      </div>
-
-      <div class="calibration">
+      <!-- Calibration controls -->
+      <div class="controls calibrate-mode" style="display:none;">
         <button id="cal-open-{{ shutter.id }}">Kalibracja otwierania</button>
         <span id="cal-open-time-{{ shutter.id }}" class="cal-time"></span>
         <button id="cal-close-{{ shutter.id }}">Kalibracja zamykania</button>
         <span id="cal-close-time-{{ shutter.id }}" class="cal-time"></span>
+      </div>
+
+      <div class="progress-container">
+        <div class="progress-bar" id="progress-{{ shutter.id }}"></div>
       </div>
     </div>
   {% endfor %}
 
   <br />
   <a href="/mqtt/settings/">Ustawienia MQTT</a>
+
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script>
+    // Mode toggle
+    $('#mode-manual').click(() => switchMode('manual'));
+    $('#mode-calibrate').click(() => switchMode('calibrate'));
+    function switchMode(mode) {
+      $('.nav-btn').removeClass('active');
+      $(`#mode-${mode}`).addClass('active');
+      $('.manual-mode').toggle(mode === 'manual');
+      $('.calibrate-mode').toggle(mode === 'calibrate');
+    }
+
     const animating = {};
     const calibData = {};
     const liveData = {};
@@ -89,10 +109,10 @@
     function renderStatus(id, state) {
       const span = document.getElementById(`status-${id}`);
       let label, color;
-      if (state === 'open')      { label='open';       color='green'; }
-      else if (state === 'closed'){ label='closed';     color='red';   }
-      else if (state === 'opening' || state === 'closing') { label='W trakcie'; color='orange'; }
-      else                        { label='unknown';    color='gray';  }
+      if (state === 'open')       { label = 'open';      color = 'green'; }
+      else if (state === 'closed') { label = 'closed';    color = 'red';   }
+      else if (state === 'opening' || state === 'closing') { label = 'W trakcie'; color = 'orange'; }
+      else                         { label = 'unknown';   color = 'gray';  }
       span.className = `status ${state}`;
       span.innerHTML = `<i class="fas fa-circle" style="color:${color}"></i> ${label}`;
     }
@@ -108,22 +128,24 @@
       liveData[id] = { start: performance.now() };
       disp.textContent = '0.0s';
       liveData[id].timer = setInterval(() => {
-        const e = (performance.now() - liveData[id].start)/1000;
-        disp.textContent = e.toFixed(1) + 's';
+        const elapsed = (performance.now() - liveData[id].start) / 1000;
+        disp.textContent = elapsed.toFixed(1) + 's';
       }, 100);
     }
 
     function stopLiveTimer(id) {
-      const d = liveData[id];
-      if (d && d.timer) { clearInterval(d.timer); delete liveData[id]; }
+      if (liveData[id]?.timer) {
+        clearInterval(liveData[id].timer);
+        delete liveData[id];
+      }
     }
 
     function control(id, action, duration) {
       const btnO = document.getElementById(`btn-open-${id}`);
       const btnC = document.getElementById(`btn-close-${id}`);
-      if ((action==='open' && btnO.disabled) || (action==='close' && btnC.disabled)) return;
+      if ((action === 'open' && btnO.disabled) || (action === 'close' && btnC.disabled)) return;
       fetch(`/shutter/${id}/${action}/`).then(() => {
-        const mid = action==='open' ? 'opening' : 'closing';
+        const mid = action === 'open' ? 'opening' : 'closing';
         renderStatus(id, mid);
         updateButtonStates(id, mid);
         if (!animating[id]) {
@@ -132,7 +154,7 @@
           startLiveTimer(id);
           setTimeout(() => {
             stopLiveTimer(id);
-            const fin = action==='open' ? 'open' : 'closed';
+            const fin = action === 'open' ? 'open' : 'closed';
             renderStatus(id, fin);
             updateButtonStates(id, fin);
             animating[id] = false;
@@ -145,8 +167,9 @@
       const open = parseFloat(document.getElementById(`open-${id}`).value);
       const close = parseFloat(document.getElementById(`close-${id}`).value);
       fetch(`/shutter/${id}/update_times/`, {
-        method: 'POST', headers: { 'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}' },
-        body: JSON.stringify({ open_duration:open, close_duration:close })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ open_duration: open, close_duration: close })
       }).then(() => { location.reload(); });
     }
 
@@ -157,23 +180,23 @@
         calibData[`${action}-${id}`] = {
           start: performance.now(),
           timer: setInterval(() => {
-            const elapsed = (performance.now() - calibData[`${action}-${id}`].start)/1000;
+            const elapsed = (performance.now() - calibData[`${action}-${id}`].start) / 1000;
             disp.textContent = elapsed.toFixed(1) + 's';
           }, 100)
         };
-        // start motor
         fetch(`/shutter/${id}/calibrate/${action}/start/`);
       });
       btn.addEventListener('mouseup', () => {
-        const d = calibData[`${action}-${id}`]; clearInterval(d.timer);
-        const elapsed = (performance.now() - d.start)/1000;
-        // stop motor
+        const data = calibData[`${action}-${id}`];
+        clearInterval(data.timer);
+        const elapsed = (performance.now() - data.start) / 1000;
         fetch(`/shutter/${id}/calibrate/${action}/stop/`, {
-          method:'POST', headers:{ 'Content-Type':'application/json','X-CSRFToken':'{{ csrf_token }}' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
           body: JSON.stringify({ duration: elapsed })
         }).then(() => {
           disp.textContent = elapsed.toFixed(1) + 's';
-          if(action==='open') document.getElementById(`open-${id}`).value = elapsed.toFixed(1);
+          if (action === 'open') document.getElementById(`open-${id}`).value = elapsed.toFixed(1);
           else document.getElementById(`close-${id}`).value = elapsed.toFixed(1);
         });
       });
@@ -187,6 +210,7 @@
         wireCalibrate({{ shutter.id }}, 'open');
         wireCalibrate({{ shutter.id }}, 'close');
       {% endfor %}
+      switchMode('manual');
     });
 
     setInterval(() => {
@@ -196,21 +220,21 @@
           updates.forEach(u => {
             renderStatus(u.id, u.action);
             updateButtonStates(u.id, u.action);
-            if ((u.action==='opening'||u.action==='closing') && !animating[u.id]) {
+            if ((u.action === 'opening' || u.action === 'closing') && !animating[u.id]) {
               animating[u.id] = true;
-              animateBar(u.id,u.duration);
+              animateBar(u.id, u.duration);
               startLiveTimer(u.id);
-              setTimeout(()=>{
+              setTimeout(() => {
                 stopLiveTimer(u.id);
-                const fin = u.action==='opening'?'open':'closed';
+                const fin = u.action === 'opening' ? 'open' : 'closed';
                 renderStatus(u.id, fin);
                 updateButtonStates(u.id, fin);
                 animating[u.id] = false;
-              },u.duration*1000);
+              }, u.duration * 1000);
             }
           });
         });
-    },2000);
+    }, 2000);
   </script>
 </body>
 </html>
