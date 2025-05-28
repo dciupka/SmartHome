@@ -10,7 +10,7 @@
 </head>
 <body>
   <nav class="navbar">
-    <button id="mode-manual" class="nav-btn active">Tryb manualny</button>
+    <button id="mode-automatic" class="nav-btn active">Tryb automatyczny</button>
     <button id="mode-calibrate" class="nav-btn">Kalibracja</button>
   </nav>
 
@@ -30,20 +30,9 @@
         <span id="live-time-{{ shutter.id }}" class="live-time"></span>
       </p>
 
-      <!-- Manual controls -->
-      <div class="controls manual-mode">
-        <div class="duration-inputs">
-          <label for="open-{{ shutter.id }}">Czas otwierania (s):</label>
-          <input type="number" min="0" step="0.1" id="open-{{ shutter.id }}" value="{{ shutter.open_duration }}" />
+      <!-- Automatic controls -->
+      <div class="controls automatic-mode">
 
-          <label for="close-{{ shutter.id }}">Czas zamykania (s):</label>
-          <input type="number" min="0" step="0.1" id="close-{{ shutter.id }}" value="{{ shutter.close_duration }}" />
-
-          <button onclick="updateTimes({{ shutter.id }})">
-            <i class="fas fa-save"></i> Zapisz czasy
-          </button>
-          <div id="saved-msg-{{ shutter.id }}" class="saved-msg" style="display:none;">Zapisano!</div>
-        </div>
 
         <div class="button-group">
           <button id="btn-open-{{ shutter.id }}" onclick="control({{ shutter.id }}, 'open', {{ shutter.open_duration }})">
@@ -57,6 +46,18 @@
 
       <!-- Calibration controls -->
       <div class="controls calibrate-mode" style="display:none;">
+        <div class="duration-inputs">
+          <label for="open-{{ shutter.id }}">Czas otwierania (s):</label>
+          <input type="number" min="0" step="0.1" id="open-{{ shutter.id }}" value="{{ shutter.open_duration }}" />
+
+          <label for="close-{{ shutter.id }}">Czas zamykania (s):</label>
+          <input type="number" min="0" step="0.1" id="close-{{ shutter.id }}" value="{{ shutter.close_duration }}" />
+
+          <button onclick="updateTimes({{ shutter.id }})">
+            <i class="fas fa-save"></i> Zapisz czasy
+          </button>
+          <div id="saved-msg-{{ shutter.id }}" class="saved-msg" style="display:none;">Zapisano!</div>
+        </div>
         <button id="cal-open-{{ shutter.id }}">Kalibracja otwierania</button>
         <span id="cal-open-time-{{ shutter.id }}" class="cal-time"></span>
         <button id="cal-close-{{ shutter.id }}">Kalibracja zamykania</button>
@@ -75,12 +76,12 @@
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script>
     // Mode toggle
-    $('#mode-manual').click(() => switchMode('manual'));
+    $('#mode-automatic').click(() => switchMode('automatic'));
     $('#mode-calibrate').click(() => switchMode('calibrate'));
     function switchMode(mode) {
       $('.nav-btn').removeClass('active');
       $(`#mode-${mode}`).addClass('active');
-      $('.manual-mode').toggle(mode === 'manual');
+      $('.automatic-mode').toggle(mode === 'automatic');
       $('.calibrate-mode').toggle(mode === 'calibrate');
     }
 
@@ -134,10 +135,7 @@
     }
 
     function stopLiveTimer(id) {
-      if (liveData[id]?.timer) {
-        clearInterval(liveData[id].timer);
-        delete liveData[id];
-      }
+      if (liveData[id]?.timer) { clearInterval(liveData[id].timer); delete liveData[id]; }
     }
 
     function control(id, action, duration) {
@@ -187,8 +185,7 @@
         fetch(`/shutter/${id}/calibrate/${action}/start/`);
       });
       btn.addEventListener('mouseup', () => {
-        const data = calibData[`${action}-${id}`];
-        clearInterval(data.timer);
+        const data = calibData[`${action}-${id}`]; clearInterval(data.timer);
         const elapsed = (performance.now() - data.start) / 1000;
         fetch(`/shutter/${id}/calibrate/${action}/stop/`, {
           method: 'POST',
@@ -210,30 +207,27 @@
         wireCalibrate({{ shutter.id }}, 'open');
         wireCalibrate({{ shutter.id }}, 'close');
       {% endfor %}
-      switchMode('manual');
     });
 
     setInterval(() => {
-      fetch('/shutter/status/')
-        .then(res => res.json())
-        .then(updates => {
-          updates.forEach(u => {
-            renderStatus(u.id, u.action);
-            updateButtonStates(u.id, u.action);
-            if ((u.action === 'opening' || u.action === 'closing') && !animating[u.id]) {
-              animating[u.id] = true;
-              animateBar(u.id, u.duration);
-              startLiveTimer(u.id);
-              setTimeout(() => {
-                stopLiveTimer(u.id);
-                const fin = u.action === 'opening' ? 'open' : 'closed';
-                renderStatus(u.id, fin);
-                updateButtonStates(u.id, fin);
-                animating[u.id] = false;
-              }, u.duration * 1000);
-            }
-          });
+      fetch('/shutter/status/').then(res => res.json()).then(updates => {
+        updates.forEach(u => {
+          renderStatus(u.id, u.action);
+          updateButtonStates(u.id, u.action);
+          if ((u.action === 'opening' || u.action === 'closing') && !animating[u.id]) {
+            animating[u.id] = true;
+            animateBar(u.id, u.duration);
+            startLiveTimer(u.id);
+            setTimeout(() => {
+              stopLiveTimer(u.id);
+              const fin = u.action === 'opening' ? 'open' : 'closed';
+              renderStatus(u.id, fin);
+              updateButtonStates(u.id, fin);
+              animating[u.id] = false;
+            }, u.duration * 1000);
+          }
         });
+      });
     }, 2000);
   </script>
 </body>
